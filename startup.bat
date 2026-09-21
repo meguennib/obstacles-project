@@ -33,8 +33,7 @@ if not exist "%BACK_DIR%\app\main.py" (
   exit /b 1
 )
 
-start "MyProject API (FastAPI)" cmd /k ^
-  "cd /d ""%BACK_DIR%"" ^&^& ""%PY%"" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+start "MyProject API (FastAPI)" /d "%BACK_DIR%" cmd /k ""%PY%" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
 
 REM --- Frontend
 if not exist "%FRONT_DIR%\package.json" (
@@ -45,17 +44,15 @@ if not exist "%FRONT_DIR%\package.json" (
 
 REM Install node modules if missing
 if not exist "%FRONT_DIR%\node_modules" (
-  start "MyProject Front (npm install)" cmd /k ^
-    "cd /d ""%FRONT_DIR%"" ^&^& npm install"
+  start "MyProject Front (npm install)" /d "%FRONT_DIR%" cmd /k "npm install"
   echo.
-  echo [INFO] node_modules missing -> npm install launched in a separate window.
+  echo [INFO] node_modules missing -^> npm install launched in a separate window.
   echo You can run startup.bat again after install, or run: npm run dev
   echo.
   exit /b 0
 )
 
-start "MyProject Front (Vite)" cmd /k ^
-  "cd /d ""%FRONT_DIR%"" ^&^& npm run dev -- --host 0.0.0.0 --port 5173"
+start "MyProject Front (Vite)" /d "%FRONT_DIR%" cmd /k "npm run dev -- --host 0.0.0.0 --port 5173"
 
 echo.
 echo Done.

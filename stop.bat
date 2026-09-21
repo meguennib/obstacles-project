@@ -1,21 +1,25 @@
 @echo off
-setlocal
+setlocal ENABLEDELAYEDEXPANSION
+
+REM ------------------------------------------------------------
+REM MyProject - Stop (Kill Backend + Frontend)
+REM ------------------------------------------------------------
 
 echo =========================
 echo   Stopping MyProject...
 echo =========================
 echo.
 
-REM Kill processes listening on port 8000 (FastAPI/Uvicorn)
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":8000 .*LISTENING"') do (
-  echo Stopping process on port 8000: PID=%%P
-  taskkill /PID %%P /F >nul 2>&1
+REM Port 8000 (Backend)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000" ^| findstr "LISTENING"') do (
+  echo Stopping process on port 8000: PID=%%a
+  taskkill /f /pid %%a 2>nul
 )
 
-REM Kill processes listening on port 5173 (Vite)
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":5173 .*LISTENING"') do (
-  echo Stopping process on port 5173: PID=%%P
-  taskkill /PID %%P /F >nul 2>&1
+REM Port 5173 (Frontend)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5173" ^| findstr "LISTENING"') do (
+  echo Stopping process on port 5173: PID=%%a
+  taskkill /f /pid %%a 2>nul
 )
 
 echo.
