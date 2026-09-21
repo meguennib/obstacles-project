@@ -1,77 +1,104 @@
-# Backend API
+# Backend API - Obstacles Routing
 
-Ce projet est une API Backend développée avec **FastAPI** pour le calcul d'itinéraires et la gestion d'événements de circulation (fermetures de routes). Il s'appuie sur **PostgreSQL** avec **PostGIS** et **pgRouting**.
+FastAPI + PostgreSQL/PostGIS/pgRouting pour calcul d'itinéraires avec évitement d'obstacles (Algérie).
 
-Il fonctionne de concert avec le frontend situé dans `../frontend/`.
-
-## Structure du Projet Backend
+## Structure
 
 ```
 backend/
 ├── app/
-│   ├── apps/
-│   │   ├── events/             # Module de gestion des événements (fermetures de routes)
-│   │   │   ├── api.py          # Endpoints API (création, validation, liste, désactivation)
-│   │   │   ├── schemas.py      # Modèles Pydantic (validation des données)
-│   │   │   └── service.py      # Logique métier et requêtes SQL brutes
-│   │   └── routing/            # Module de calcul d'itinéraires
-│   │   │   ├── api.py          # Endpoint API pour le calcul de route
-│   │   │   ├── schemas.py      # Modèles Pydantic pour les requêtes/réponses de routage
-│   │   │   └── service.py      # Algorithme Dijkstra et exclusion dynamique des routes fermées
+│   ├── main.py (FastAPI, 5 routers, CORS)
 │   ├── core/
-│   │   ├── config.py           # Configuration de l'application (variables d'environnement)
-│   │   └── db.py               # Configuration de la base de données (Session, Engine)
-│   └── main.py                 # Point d'entrée de l'application FastAPI
-├── manage.py                   # Outil CLI pour l'administration et les tests (check-db, install-schema)
-├── requirements.txt            # Liste des dépendances Python
-└── .env                        # Variables d'environnement (non inclus dans le repo par défaut)
+│   │   ├── config.py (pydantic-settings, POSTGRES_*, GOOGLE_ROUTES_API_KEY)
+│   │   ├── db.py (engine, SessionLocal, get_db)
+│   │   └── logging.py
+│   └── apps/
+│       ├── routing/
+│       │   ├── api.py (POST /api/v1/route?compare=google)
+│       │   ├── schemas.py (LatLng, RouteRequest, RouteResponse)
+│       │   ├── service.py (bbox progressive, nearest node, dijkstra, summarize)
+│       │   ├── edges.py (nearest_edge_smart + POST /api/v1/edges/nearest)
+│       │   └── constants.py (EDGES_TABLE, SRID)
+│       ├── events/
+│       │   ├── api.py (CRUD road_closed)
+│       │   ├── schemas.py
+│       │   └── service.py (SQL brut, edge_id obligatoire pour validate)
+│       ├── geocoding/
+│       │   ├── api.py (/suggest, /reverse)
+│       │   ├── schemas.py
+│       │   └── service.py (Photon Komoot, bbox DZ, cache, throttle)
+│       ├── stats/
+│       │   ├── api.py (/summary, /timeseries, /top-edges, /top-failures)
+│       │   ├── service.py (get_summary avec google avg fix)
+│       │   ├── collector.py (record_route_success/failure, json dumps fix)
+│       │   └── schemas.py
+│       └── traffic_google/
+│           └── client.py (Google Routes TRAFFIC_AWARE)
+├── manage.py (CLI typer: check-db, install-schema, smoke-route)
+├── requirements.txt (fastapi, uvicorn, sqlalchemy, psycopg[binary], httpx, typer...)
+├── Dockerfile
+└── .env.example
 ```
 
-## Description des Fichiers Clés
+## Endpoints
 
-### 1. Racine
-- **`manage.py`** : Script utilitaire en ligne de commande (basé sur `typer`). Il permet de :
-    - `check-db` : Vérifier la connexion à PostgreSQL, PostGIS et pgRouting.
-    - `install-schema` : Installer ou mettre à jour les tables et index nécessaires.
-    - `smoke-route` : Lancer un test rapide de routage et de fermeture de route pour valider le bon fonctionnement.
-- **`requirements.txt`** : Contient toutes les librairies nécessaires (FastAPI, SQLAlchemy, Typer, Psycopg, etc.).
+- `POST /api/v1/route` : calcule itinéraire
+  - body: `{start:{lon,lat}, end:{lon,lat}, vias:[{lon,lat}], profile:"car"}`
+  - query: `?compare=google` (nécessite GOOGLE_ROUTES_API_KEY)
+  - retour: `{distance_km, duration_min, edges:[], geometry_geojson, comparison?}`
 
-### 2. Dossier `app/`
-- **`main.py`** : Initialise l'application `FastAPI`, configure le CORS (pour autoriser le frontend) et inclut les routeurs (`routing` et `events`).
+- `POST /api/v1/edges/nearest` : sélection intelligente d'edge
+  - body: `{lon, lat, zoom}`
+  - retour: `{edge_id, distance_m, threshold_m, accepted, geometry_wkt, geometry_geojson}`
 
-### 3. Dossier `app/core/`
-- **`config.py`** : Charge la configuration depuis le fichier `.env`.
-- **`db.py`** : Gère la connexion à la base de données (`SessionLocal`).
+- Events: `POST /road_closed`, `POST /{id}/validate`, `POST /{id}/disable`, `GET /road_closed`, `GET /{id}`
 
-### 4. Dossier `app/apps/events/` (Gestion des événements)
-- **`api.py`** : Routes : `POST /road_closed` (créer), `POST .../validate`, `POST .../disable`, `GET /road_closed`.
-- **`service.py`** : Logique SQL pour gérer `public.events_road_closed`.
+- Geocode: `GET /suggest?q&limit`, `GET /reverse?lon&lat`
 
-### 5. Dossier `app/apps/routing/` (Calcul d'itinéraires)
-- **`api.py`** : Route `POST /route`.
-- **`service.py`** : Utilise `pgr_dijkstra` pour le calcul. Exclut dynamiquement les routes fermées (coût = -1).
+- Stats: `GET /summary?days`, `GET /timeseries?days`, `GET /top-edges`, `GET /top-failures`
 
-## Installation et Lancement
+## Logique Routing
 
-1.  **Pré-requis** : Python 3.10+, PostgreSQL avec PostGIS et pgRouting activés.
-2.  **Installation des dépendances** :
-    ```bash
-    pip install -r requirements.txt
-    ```
-3.  **Configuration** :
-    Créez un fichier `.env` à la racine avec vos accès BDD (voir `app/core/config.py`).
-4.  **Initialisation BDD** :
-    ```bash
-    python manage.py check-db
-    python manage.py install-schema
-    ```
-5.  **Lancement du serveur** :
-    ```bash
-    uvicorn app.main:app --reload
-    ```
-    L'API sera disponible sur `http://localhost:8000` (Documentation sur `/docs`).
+1. `compute_bbox(points, margin_factor, min_margin, max_margin)` avec 4 trials: 0.25/0.02/0.5, 0.5/0.04/1.0, 1.0/0.08/2.0, None (full graph)
+2. `nearest_graph_node_id(lon,lat)` : KNN 80 edges sur `geom_way <-> point`, puis distance géodésique vers source/target -> node garanti dans graphe
+3. `edges_sql_excluding_closures(bbox)` : CTE `closed` filtre `status='validated' AND edge_id IS NOT NULL AND now() BETWEEN start_time AND end_time`, LEFT JOIN + CASE cost=-1
+4. `dijkstra_edges(source,target,bbox)` : `pgr_dijkstra(sql, source, target, directed:=true)`
+5. `summarize_route(edge_ids)` : `unnest WITH ORDINALITY` pour préserver ordre, `ST_MakeLine ORDER BY ord`, SUM km et km/kmh*60
 
-6.  **Tests rapides** :
-    ```bash
-    python manage.py smoke-route
-    ```
+## Installation
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env
+# edit .env
+.venv/bin/python manage.py check-db
+.venv/bin/python manage.py install-schema
+.venv/bin/python manage.py smoke-route
+.venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+## Docker
+
+```bash
+docker build -t obstacles-backend .
+docker run -p 8000:8000 --env-file .env obstacles-backend
+```
+
+## Variables d'environnement
+
+Voir `.env.example`.
+
+## Tests
+
+```bash
+RUN_INTEGRATION=1 .venv/bin/pytest -v
+```
+
+## Fixes v1.1.0
+
+- Ajout router edges manquant
+- Création tables stats + exclusion constraint
+- Fix collector JSON serialization
+- Fix get_summary google avg
+- Ajout httpx dans requirements

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -55,7 +56,7 @@ def record_route_success(
             :start_lon, :start_lat, :end_lon, :end_lat,
             CAST(:vias AS jsonb), :profile,
             :distance_km, :duration_min,
-            :edge_count, :edges,
+            :edge_count, CAST(:edges AS jsonb),
             :had, :c,
             :gdist, :gdur,
             :ddist, :ddur
@@ -64,12 +65,12 @@ def record_route_success(
         db.execute(ins, {
             "start_lon": start_lon, "start_lat": start_lat,
             "end_lon": end_lon, "end_lat": end_lat,
-            "vias": vias_json,
+            "vias": json.dumps(vias_json or []),
             "profile": profile,
             "distance_km": distance_km,
             "duration_min": duration_min,
             "edge_count": len(edges),
-            "edges": edges,
+            "edges": json.dumps(edges or []),
             "had": had,
             "c": c,
             "gdist": google_distance_km,
@@ -121,7 +122,7 @@ def record_route_failure(
         db.execute(ins, {
             "start_lon": start_lon, "start_lat": start_lat,
             "end_lon": end_lon, "end_lat": end_lat,
-            "vias": vias_json,
+            "vias": json.dumps(vias_json or []),
             "profile": profile,
             "error_type": error_type,
             "error_message": error_message[:1000],

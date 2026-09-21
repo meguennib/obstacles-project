@@ -1,73 +1,82 @@
-# React + TypeScript + Vite
+# Frontend - Obstacles Routing (React + Leaflet)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Interface React 19 + TypeScript + Vite + Leaflet pour calcul d'itinéraires avec évitement d'obstacles.
 
-Currently, two official plugins are available:
+## Pages
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **RoutePage** (`/`) : pick Start/End/Via sur carte, recherche adresse DZ (Photon), calcul route `POST /api/v1/route`, affichage polyline + distance/durée + comparaison Google (`?compare=google`), fitBounds
+- **EventsPage** : création fermetures via adresse OU clic carte -> `POST /api/v1/edges/nearest` avec seuil dynamique, formulaire raison/dates, `POST /road_closed` + `validate`, liste filtrée + disable
+- **DashboardPage** : stats `summary`, `timeseries`, `top-edges`, `top-failures`, cards distance/durée + Google delta
 
-## React Compiler
+## Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Vite 7.2.4 + @vitejs/plugin-react
+- React 19.2 + react-dom
+- Leaflet 1.9.4 + react-leaflet 5.0
+- TypeScript 5.9
+- ESLint
 
-## Expanding the ESLint configuration
+## Config
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+`vite.config.ts`:
+- `server.host: 0.0.0.0`, `port: 5173`
+- proxy `/api -> http://localhost:8000` (pour dev)
+- `preview.host: 0.0.0.0`
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+`.env`:
+```ini
+VITE_API_BASE=http://localhost:8000
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Lancement
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+cp .env.example .env
+npm run dev -- --host 0.0.0.0 --port 5173
+# build
+npm run build
+npm run preview
 ```
+
+## Docker
+
+```bash
+docker build --build-arg VITE_API_BASE=http://localhost:8000 -t obstacles-frontend .
+docker run -p 5173:80 obstacles-frontend
+# nginx.conf proxy /api/ -> backend:8000
+```
+
+## Structure
+
+```
+src/
+├── App.tsx (tabs routing/events/dashboard)
+├── main.tsx
+├── index.css (fix * box-sizing)
+├── api.ts (VITE_API_BASE, apiGet/apiPost avec error parsing)
+├── types.ts (RouteRequest, RouteResponse, NearestEdgeResponse, Geocode, Stats)
+├── pages/
+│   ├── RoutePage.tsx
+│   ├── EventsPage.tsx
+│   └── DashboardPage.tsx
+├── components/
+│   ├── AddressAutocomplete.tsx
+│   └── MapClickPicker.tsx
+└── utils/geo.ts (geojsonToPolylines)
+```
+
+## API utilisée
+
+- `GET /api/v1/geocode/suggest?q&limit`
+- `POST /api/v1/edges/nearest` `{lon,lat,zoom}`
+- `POST /api/v1/route` + `?compare=google`
+- `GET/POST /api/v1/events/road_closed`
+- `GET /api/v1/stats/*`
+
+## Fixes v1.1.0
+
+- Fix `index.css` invalide
+- Ajout proxy Vite + host 0.0.0.0 pour Arena preview
+- Ajout `.env.example`
+- Ajout `nginx.conf` + `Dockerfile` multi-stage
