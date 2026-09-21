@@ -1,0 +1,43 @@
+backend/
+  .env
+  requirements.txt
+  manage.py
+  app/
+    __init__.py
+    main.py
+    core/
+      __init__.py
+      config.py
+      db.py
+    apps/
+      routing/
+        __init__.py
+        api.py
+        schemas.py
+        service.py
+      events/
+        __init__.py
+        api.py
+        schemas.py
+        service.py
+  tests/
+    conftest.py
+    test_route.py
+
+frontend/
+  .env
+  package.json
+  vite.config.ts
+  index.html
+  eslint.config.js
+  tsconfig.json
+  src/
+    main.tsx
+    App.tsx
+    index.css
+    types.ts
+    api.ts
+    pages/
+      EventsPage.tsx
+      RoutePage.tsx
+    assets/
