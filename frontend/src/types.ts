@@ -23,7 +23,7 @@ export type RouteResponse = {
     distance_km: number;
     duration_min: number;
     edges: number[];
-    geometry_geojson: string;
+    geometry_geojson: string | null;
     comparison?: RouteComparison | null;
 };
 

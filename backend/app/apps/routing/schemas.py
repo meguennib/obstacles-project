@@ -31,5 +31,5 @@ class RouteResponse(BaseModel):
     distance_km: float
     duration_min: float
     edges: List[int]
-    geometry_geojson: str
+    geometry_geojson: Optional[str] = None
     comparison: Optional[RouteComparison] = None
