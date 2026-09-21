@@ -1,10 +1,12 @@
 import math
 from typing import Optional
 
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.db import get_db
 from app.apps.routing.constants import EDGES_TABLE, SRID
 
 
@@ -99,3 +101,17 @@ def nearest_edge_smart(db: Session, lon: float, lat: float, zoom: int) -> dict:
         "geometry_wkt": row["wkt"],
         "geometry_geojson": row["geojson"],
     }
+
+
+router = APIRouter(prefix="/api/v1/edges", tags=["edges"])
+
+
+@router.post("/nearest", response_model=NearestEdgeResponse)
+def nearest_edge_endpoint(req: NearestEdgeRequest, db: Session = Depends(get_db)):
+    return nearest_edge_smart(db, lon=req.lon, lat=req.lat, zoom=req.zoom)
+
+
+# Alias for frontend that may send {lat, lon, zoom} without strict order - same model works
+@router.post("/nearest/", response_model=NearestEdgeResponse, include_in_schema=False)
+def nearest_edge_endpoint_slash(req: NearestEdgeRequest, db: Session = Depends(get_db)):
+    return nearest_edge_smart(db, lon=req.lon, lat=req.lat, zoom=req.zoom)

@@ -17,7 +17,11 @@ def get_summary(db: Session, days: int) -> StatsSummary:
           COUNT(*)::int AS routes_ok,
           AVG(distance_km) AS avg_distance_km,
           AVG(duration_min) AS avg_duration_min,
-          SUM(CASE WHEN had_active_closures THEN 1 ELSE 0 END)::int AS with_active_closures
+          SUM(CASE WHEN had_active_closures THEN 1 ELSE 0 END)::int AS with_active_closures,
+          AVG(google_distance_km) AS avg_google_distance_km,
+          AVG(google_duration_min) AS avg_google_duration_min,
+          AVG(delta_distance_km) AS avg_delta_distance_km,
+          AVG(delta_duration_min) AS avg_delta_duration_min
         FROM public.stats_route_log
         WHERE created_at >= now() - (:interval)::interval
     """)
@@ -44,6 +48,10 @@ def get_summary(db: Session, days: int) -> StatsSummary:
         avg_duration_min=row_ok["avg_duration_min"],
         with_active_closures=with_active_closures,
         pct_with_active_closures=pct,
+        avg_google_distance_km=row_ok["avg_google_distance_km"],
+        avg_google_duration_min=row_ok["avg_google_duration_min"],
+        avg_delta_distance_km=row_ok["avg_delta_distance_km"],
+        avg_delta_duration_min=row_ok["avg_delta_duration_min"],
     )
 
 

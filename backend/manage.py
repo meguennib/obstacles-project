@@ -12,6 +12,11 @@ from app.apps.events.service import create_road_closed, validate_road_closed
 app = typer.Typer(add_completion=False)
 
 SCHEMA_SQL = """
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS pgrouting;
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
 -- Table events (si pas déjà créée)
 CREATE TABLE IF NOT EXISTS public.events_road_closed (
   id SERIAL PRIMARY KEY,
@@ -40,6 +45,78 @@ ON public.events_road_closed (edge_id);
 -- Performance routing
 CREATE INDEX IF NOT EXISTS idx_algeria_2po_4pgr_geom_way
 ON public.algeria_2po_4pgr USING GIST (geom_way);
+
+-- Stats tables
+CREATE TABLE IF NOT EXISTS public.stats_route_log (
+  id SERIAL PRIMARY KEY,
+  start_lon double precision,
+  start_lat double precision,
+  end_lon double precision,
+  end_lat double precision,
+  vias jsonb,
+  profile varchar(20) DEFAULT 'car',
+  distance_km double precision,
+  duration_min double precision,
+  edge_count integer,
+  edges jsonb,
+  had_active_closures boolean DEFAULT false,
+  active_closure_count integer DEFAULT 0,
+  google_distance_km double precision,
+  google_duration_min double precision,
+  delta_distance_km double precision,
+  delta_duration_min double precision,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.stats_route_fail_log (
+  id SERIAL PRIMARY KEY,
+  start_lon double precision,
+  start_lat double precision,
+  end_lon double precision,
+  end_lat double precision,
+  vias jsonb,
+  profile varchar(20) DEFAULT 'car',
+  error_type varchar(100),
+  error_message text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.stats_edge_usage_daily (
+  day date NOT NULL,
+  edge_id integer NOT NULL,
+  hits integer NOT NULL DEFAULT 1,
+  last_seen timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (day, edge_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stats_route_log_created_at
+ON public.stats_route_log (created_at);
+
+CREATE INDEX IF NOT EXISTS idx_stats_route_fail_log_created_at
+ON public.stats_route_fail_log (created_at);
+
+CREATE INDEX IF NOT EXISTS idx_stats_edge_usage_daily_day
+ON public.stats_edge_usage_daily (day);
+
+-- Optional exclusion constraint to prevent overlapping validated closures on same edge
+-- Requires btree_gist. We create it only if not exists via DO block to avoid failure on existing data
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'excl_events_road_closed_no_overlap'
+  ) THEN
+    BEGIN
+      ALTER TABLE public.events_road_closed
+      ADD CONSTRAINT excl_events_road_closed_no_overlap
+      EXCLUDE USING gist (
+        edge_id WITH =,
+        tstzrange(start_time, end_time) WITH &&
+      ) WHERE (status = 'validated' AND edge_id IS NOT NULL);
+    EXCEPTION WHEN others THEN
+      RAISE NOTICE 'Could not create exclusion constraint (maybe overlapping data): %', SQLERRM;
+    END;
+  END IF;
+END $$;
 """
 
 @app.command("check-db")

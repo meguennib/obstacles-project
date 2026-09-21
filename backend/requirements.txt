@@ -6,6 +6,7 @@ sqlalchemy
 alembic
 python-dotenv
 requests
+httpx
 psycopg[binary]
 geoalchemy2
 typer
