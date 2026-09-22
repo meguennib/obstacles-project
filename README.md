@@ -208,7 +208,18 @@ make bench
 ```
 
 - `backend/tests/` : unitaires purs (SQL syntaxique via **pglast**, expressions de coût, CTE obstacles, choix d'algorithme, UTM, bbox, direction de snap) + intégration déterministe sur le **grid synthétique** (`manage.py make-test-graph`) : détour après fermeture, firewall multi-edges (400), pénalité (2 edges comptés), sens `forward`, snap directionnel, cache hit/invalidation.
-- **CI** (`.github/workflows/ci.yml`) : service `postgis/postgis:16-3.4` → install-schema → make-test-graph → check-db → smoke-route → `pytest` (unitaires + intégration) → bench artifact ; job frontend : `npm ci` → build → lint.
+- **CI** (`.github/workflows/ci.yml`) : service `pgrouting/pgrouting:16-3.5-3.8` (PostgreSQL 16 + PostGIS 3.5 + pgRouting 3.8 — l'image `postgis/postgis` **n'inclut pas** pgRouting) → install-schema → make-test-graph → check-db → smoke-route → `pytest` (unitaires + intégration) → bench (résumé p50/p95 dans une annotation de check, lisible via l'API ; JSON en artefact) ; job frontend : `npm ci` → build → lint.
+
+**Benchmarks de référence (CI, grid 264 edges — cache off, `runs=5`, `closures=3`)** :
+
+| Trajet | p50 sans fermetures | p95 sans | p50 avec 3 fermetures | p95 avec |
+|---|---|---|---|---|
+| grid_west_east (ligne highway) | 5,79 ms | 28,05 ms | 4,47 ms | 6,24 ms |
+| grid_south_north (colonne highway) | 4,37 ms | 5,36 ms | 4,67 ms | 5,24 ms |
+| grid_diagonal | 4,38 ms | 5,03 ms | 4,91 ms | 5,26 ms |
+| grid_mixed (urbain kmh=50) | 4,22 ms | 5,65 ms | 4,57 ms | 5,52 ms |
+
+→ Sur un graphe réel (10⁵–10⁷ edges), s'ajoute le coût Dijkstra/A* proportionnel au sous-graphe (d'où les trials bbox progressifs et le cache segments).
 
 ## ✨ Nouveautés v1.2.0 (feuille de route ROADMAP.md — jalons M0→M3)
 
@@ -219,13 +230,13 @@ make bench
 
 **Mise à l'échelle & obstacles enrichis (P1)**
 - Cache des segments `route_cache` : clé `(src, dst, closure_version, algo, cost_model)`, **invalidation exacte** par version = `MAX(updated_at)` des événements validés/désactivés (trigger), TTL 10 min, rétention 6 h, échecs non bloquants. Flag `ROUTE_CACHE`. Réponse : `cache_hits`, header `X-Route-Cache`.
-- Fermetures **multi-edges** : `derive_from_geom` + LINESTRING → tous les edges intersectés/touchés (pré-filtre GiST buffer 0.002°, plafond 500) dans `event_edge_closure` ; anti-chevauchement par contrainte EXCLUDE → **409**. Flag `MULTI_EDGE_CLOSURES` (false = CTE d'origine sur `edge_id`).
+- Fermetures **multi-edges** : `derive_from_geom` + LINESTRING → tous les edges intersectant le **buffer** de la ligne (0.002°, ~130–220 m — une ligne tracée au clic frôle les nœuds réels du graphe, plafond 500) dans `event_edge_closure` ; anti-chevauchement par contrainte EXCLUDE → **409**. Flag `MULTI_EDGE_CLOSURES` (false = CTE d'origine sur `edge_id`).
 - `end_time` nullable = « jusqu'à nouvel ordre » (`tstzrange(start, NULL)`, `active_now` adapté).
 - Frontend EventsPage : mode **Point** (origine) / **Tracé** (double-clic termine), champs sens/évitement/pénalité, colonne « edges (tracé) » ; RoutePage : connecteurs pointillés clic→noeud snap (offset > 5 m), infos algo/cache/décalage/edges pénalisés.
 
 **Finitions (P2)**
 - **Sens** de fermeture : `forward` bloque `cost`, `reverse` bloque `reverse_cost` (la route peut emprunter l'autre sens).
-- **Pénalité** : `mode=penalty` ×`penalty_factor` (sur-coût, évitement doux) ; réponse `used_penalized_edges`.
+- **Pénalité** : `mode=penalty` ×`penalty_factor` (sur-coût, évitement doux) ; réponse `used_penalized_edges`. Si la route retenue emprunte des edges pénalisés, les trials bbox plus larges (puis graphe complet) sont rejoués et la candidate au coût objectif le plus bas est adoptée — le détour n'a de sens que s'il est *visible* par la recherche.
 - **Alembic** : baseline `0001` (le SQL de bootstrap reste la source de vérité idempotente).
 - Pool de connexions (`DB_POOL_*`), `/health` avec état DB, graphe de test déterministe + bench + CI.
 
