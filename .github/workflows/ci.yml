@@ -52,9 +52,20 @@ jobs:
       - name: Check DB
         run: python manage.py check-db
       - name: Smoke route
-        run: python manage.py smoke-route
+        run: |
+          set -o pipefail
+          python manage.py smoke-route 2>&1 | tee smoke-route.log || {
+            # Annotation lisible dans l'onglet Checks (les logs complets restent dans l'UI)
+            echo "::error title=smoke-route failed (tail)::$(tail -n 40 smoke-route.log | tr '\n' '|')"
+            exit 1
+          }
       - name: Unit + integration tests
-        run: python -m pytest -q
+        run: |
+          set -o pipefail
+          python -m pytest -q --tb=short 2>&1 | tee pytest-ci.log || {
+            echo "::error title=pytest failed (tail)::$(tail -n 80 pytest-ci.log | tr '\n' '|')"
+            exit 1
+          }
       - name: Benchmark (info)
         if: always()
         run: >-
