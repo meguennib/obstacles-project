@@ -386,7 +386,13 @@ def _bbox_trials(pa: LatLng, pb: LatLng) -> List[Optional[BBox]]:
 
 
 def route_segment(db: Session, a_id: int, b_id: int, pa: LatLng, pb: LatLng) -> Tuple[List[int], str]:
-    """Recherche un segment a->b. Retourne (edges, algo) — algo = 'none' si échec."""
+    """Recherche un segment a->b. Retourne (edges, algo) — algo = 'none' si échec.
+
+    v1.2: si la route trouvée emprunte des edges en mode 'penalty', on essaie
+    les bboxes PLUS LARGES (et le graphe complet) — l'évitement doux n'a de
+    sens que si le détour moins cher est visible: on garde la candidate au
+    coût objectif le plus bas.
+    """
     d_kin = haversine_km(pa.lon, pa.lat, pb.lon, pb.lat)
     algo = _choose_algo(d_kin)
     mid_lon = (pa.lon + pb.lon) / 2.0
@@ -399,7 +405,7 @@ def route_segment(db: Session, a_id: int, b_id: int, pa: LatLng, pb: LatLng) -> 
                 if i > 0:
                     logger.warning("astar bbox expansion used: trial=%s bbox=%s",
                                    i, "NONE(full)" if bbox is None else bbox)
-                return edges, "astar"
+                return _widen_if_penalized(db, edges, "astar", a_id, b_id, pa, pb, mid_lon, trials, i)
         logger.warning("astar failed on all bbox trials (d_kin=%.1f km) -> dijkstra fallback", d_kin)
 
     for i, bbox in enumerate(trials):
@@ -408,9 +414,42 @@ def route_segment(db: Session, a_id: int, b_id: int, pa: LatLng, pb: LatLng) -> 
             if i > 0:
                 logger.warning("bbox expansion used: trial=%s bbox=%s",
                                i, "NONE(full)" if bbox is None else bbox)
-            return edges, "dijkstra"
+            return _widen_if_penalized(db, edges, "dijkstra", a_id, b_id, pa, pb, mid_lon, trials, i)
 
     return [], "none"
+
+
+def _widen_if_penalized(
+    db: Session,
+    edges: List[int],
+    algo: str,
+    a_id: int,
+    b_id: int,
+    pa: LatLng,
+    pb: LatLng,
+    mid_lon: float,
+    trials: List[Optional[BBox]],
+    first_index: int,
+) -> Tuple[List[int], str]:
+    """Élargit la recherche si des edges pénalisés sont utilisés (détour plus
+    cher que la route locale mais peut-être plus bon globalement)."""
+    if _count_penalized_used(db, edges) <= 0:
+        return edges, algo
+
+    best_edges, best_cost = edges, route_cost(db, edges)
+    for i in range(first_index + 1, len(trials)):
+        bbox = trials[i]
+        cand = (
+            astar_edges(db, a_id, b_id, bbox, mid_lon) if algo == "astar"
+            else dijkstra_edges(db, a_id, b_id, bbox)
+        )
+        if not cand:
+            continue
+        cand_cost = route_cost(db, cand)
+        if cand_cost is not None and (best_cost is None or cand_cost < best_cost - 1e-9):
+            best_edges, best_cost = cand, cand_cost
+            logger.info("penalty detour chosen: wider trial=%s cost=%.3f", i, cand_cost)
+    return best_edges, algo
 
 
 # =====================================================================
@@ -546,6 +585,28 @@ def penalized_count_sql(multi_edge: bool) -> str:
     """
 
 
+def route_cost_sql() -> str:
+    """Coût TOTAL d'une route en unités d'objectif (minutes si COST_MODEL=time,
+    sinon km), y compris le facteur de pénalité des edges utilisés — mêmes CASE
+    que le CTE de routing (pur — testable sans DB). Paramètre: :ids.
+
+    NB: approximation par le coût "forward" de chaque edge (le sens d'usage
+    exact n'est pas connu depuis la liste d'edges seule); suffisant pour
+    COMPARER deux routes candidates (détour pénalité vs route locale).
+    """
+    base_f = build_cost_expr("cost", "e")
+    pen = "c.edge_id IS NOT NULL AND c.mode = 'penalty' AND c.direction IN ('both', 'forward')"
+    return f"""
+      {closed_cte()}
+      SELECT COALESCE(SUM(
+        CASE WHEN {pen} THEN {base_f} * c.penalty_factor ELSE {base_f} END
+      ), 0)::float8
+      FROM unnest(:ids) AS t(id)
+      JOIN {EDGES_TABLE} e ON e.id = t.id
+      LEFT JOIN closed c ON c.edge_id = e.id
+    """
+
+
 def summarize_route(db: Session, edge_ids: List[int]) -> Tuple[float, float, Optional[str]]:
     if not edge_ids:
         # 0 distance, empty geometry
@@ -556,6 +617,18 @@ def summarize_route(db: Session, edge_ids: List[int]) -> Tuple[float, float, Opt
     q = text(summarize_sql())
     row = db.execute(q, {"edge_ids": edge_ids}).mappings().one()
     return float(row["distance_km"]), float(row["duration_min"]), row["geojson"]
+
+
+def route_cost(db: Session, edge_ids: List[int]) -> Optional[float]:
+    """Coût objectif d'une route (minutes ou km) — pour comparer des candidates."""
+    if not edge_ids:
+        return None
+    try:
+        row = db.execute(text(route_cost_sql()), {"ids": edge_ids}).scalar_one()
+        return None if row is None else float(row)
+    except Exception:
+        logger.exception("route_cost failed (ignored)")
+        return None
 
 
 def _count_penalized_used(db: Session, edge_ids: List[int]) -> int:

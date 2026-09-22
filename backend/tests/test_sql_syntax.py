@@ -102,6 +102,7 @@ def test_summarize_and_penalized_sql_parses():
     assert_parses(svc.summarize_sql(), "summarize")
     assert_parses(svc.penalized_count_sql(True), "penalized multi")
     assert_parses(svc.penalized_count_sql(False), "penalized legacy")
+    assert_parses(svc.route_cost_sql(), "route_cost")
 
 
 @pytest.mark.parametrize("model", ["distance", "time"])
