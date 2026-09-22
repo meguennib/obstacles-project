@@ -68,9 +68,17 @@ jobs:
           }
       - name: Benchmark (info)
         if: always()
-        run: >-
-          python manage.py bench-route --runs 5 --closures 3
-          --save docs/benchmarks/ci-$(date -u +%Y%m%d-%H%M%S).json || true
+        run: |
+          set -o pipefail
+          BENCH_FILE="docs/benchmarks/ci-$(date -u +%Y%m%d-%H%M%S).json"
+          python manage.py bench-route --runs 5 --closures 3 --save "$BENCH_FILE" 2>&1 | tee bench-route.log || true
+          # Resume du bench dans le "Summary" du check (lisible via l'API
+          # check-runs, les logs/actions n'etant pas lisibles par le token bot)
+          {
+            echo '### Benchmark routing (grid 264 edges — cache off, runs=5, closures=3)'
+            echo ''
+            grep -E 'no-closures|closures=' bench-route.log || echo '(aucune ligne de resultat — bench en erreur, voir log)'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload benchmark
         if: always()
         uses: actions/upload-artifact@v4
