@@ -13,3 +13,6 @@ backend/__pycache__/
 .DS_Store
 .coverage
 htmlcov/
+
+# Bench artifacts générés en CI (le .gitkeep garde le dossier)
+backend/docs/benchmarks/*.json

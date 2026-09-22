@@ -1,19 +1,24 @@
-.PHONY: help install backend frontend dev check-db install-schema smoke-route docker-up docker-down lint
+.PHONY: help install backend frontend dev check-db install-schema make-test-graph smoke-route bench test test-integration docker-up docker-down lint
 
 help:
 	@echo "Targets:"
-	@echo "  install        Install backend venv + frontend deps"
-	@echo "  backend        Run backend only (uvicorn)"
-	@echo "  frontend       Run frontend only (vite)"
-	@echo "  dev            Run both via startup.sh"
-	@echo "  check-db       Check PostgreSQL/PostGIS/pgRouting"
-	@echo "  install-schema Install/update DB schema"
-	@echo "  smoke-route    Quick routing + closure test"
-	@echo "  docker-up      docker compose up --build"
-	@echo "  docker-down    docker compose down"
+	@echo "  install            Install backend venv + frontend deps"
+	@echo "  backend            Run backend only (uvicorn)"
+	@echo "  frontend           Run frontend only (vite)"
+	@echo "  dev                Run both via startup.sh"
+	@echo "  check-db           Check PostgreSQL/PostGIS/pgRouting"
+	@echo "  install-schema     Install/update DB schema (idempotent)"
+	@echo "  make-test-graph    Generate deterministic 12x12 test grid (CI/tests)"
+	@echo "  smoke-route        Quick routing + closure test"
+	@echo "  bench              Benchmark routing (p50/p95, avec/sans fermetures)"
+	@echo "  test               Unit tests (sans DB)"
+	@echo "  test-integration   Integration tests (RUN_INTEGRATION=1, DB requise)"
+	@echo "  docker-up          docker compose up --build"
+	@echo "  docker-down        docker compose down -v"
+	@echo "  lint               py_compile + frontend lint"
 
 install:
-	cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+	cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest
 	cd frontend && npm install
 
 backend:
@@ -31,8 +36,20 @@ check-db:
 install-schema:
 	cd backend && .venv/bin/python manage.py install-schema
 
+make-test-graph:
+	cd backend && .venv/bin/python manage.py make-test-graph
+
 smoke-route:
 	cd backend && .venv/bin/python manage.py smoke-route
+
+bench:
+	cd backend && .venv/bin/python manage.py bench-route --runs 20 --closures 5
+
+test:
+	cd backend && .venv/bin/python -m pytest -q
+
+test-integration:
+	cd backend && RUN_INTEGRATION=1 .venv/bin/python -m pytest -q -m integration
 
 docker-up:
 	docker compose up --build

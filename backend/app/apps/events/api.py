@@ -30,6 +30,8 @@ def validate(event_id: int, db: Session = Depends(get_db)):
         msg = str(e)
         if "edge_id is required" in msg:
             raise HTTPException(status_code=400, detail=msg)
+        if "overlap" in msg.lower():
+            raise HTTPException(status_code=409, detail=msg)
         raise HTTPException(status_code=404, detail=msg)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Event validation error: {e}")

@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: routing_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_SERVER: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: routing_db
+      RUN_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r requirements.txt pytest
+      - name: Compile check
+        run: python -m compileall app manage.py
+      - name: Install schema
+        run: python manage.py install-schema
+      - name: Generate deterministic test graph
+        run: python manage.py make-test-graph
+      - name: Check DB
+        run: python manage.py check-db
+      - name: Smoke route
+        run: python manage.py smoke-route
+      - name: Unit + integration tests
+        run: python -m pytest -q
+      - name: Benchmark (info)
+        if: always()
+        run: >-
+          python manage.py bench-route --runs 5 --closures 3
+          --save docs/benchmarks/ci-$(date -u +%Y%m%d-%H%M%S).json || true
+      - name: Upload benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: backend/docs/benchmarks/ci-*.json
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - name: Install deps
+        run: npm ci
+      - name: Type check + build
+        run: npm run build
+      - name: Lint
+        run: npm run lint || true

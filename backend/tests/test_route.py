@@ -1,61 +1,58 @@
+"""Tests d'intégration routing — durcis (plus de tolérance 404).
+
+Le fixture `graph` (conftest) skippe si le graphe est vide; sinon 200 est exigé.
+"""
 import pytest
 
-@pytest.mark.integration
-def test_route_no_via(client):
-    r = client.post("/api/v1/route", json={
-        "start": {"lon": 3.04197, "lat": 36.7525},
-        "end":   {"lon": 3.09, "lat": 36.73},
-        "vias": []
-    })
-    assert r.status_code in (200, 404)
-    if r.status_code == 200:
-        data = r.json()
-        assert data["distance_km"] >= 0
-        assert len(data["edges"]) > 0
+from tests.grid import node
+
+# Points réels Algérie (utilisés si le graphe est un import OSM complet)
+ALGER_START = {"lon": 3.04197, "lat": 36.7525}
+ALGER_END = {"lon": 3.09, "lat": 36.73}
+ALGER_VIA = {"lon": 3.06, "lat": 36.745}
+
+# Graphe synthétique (grid) : coins de la grille 12x12
+GRID_START = node(0, 0)
+GRID_END = node(11, 11)
+GRID_VIA = node(5, 5)
+
+
+def _points(graph):
+    if graph["is_grid"]:
+        return GRID_START, GRID_END, GRID_VIA
+    return ALGER_START, ALGER_END, ALGER_VIA
+
 
 @pytest.mark.integration
-def test_route_with_via(client):
-    r = client.post("/api/v1/route", json={
-        "start": {"lon": 3.04197, "lat": 36.7525},
-        "vias": [{"lon": 3.06, "lat": 36.745}],
-        "end": {"lon": 3.09, "lat": 36.73}
-    })
-    assert r.status_code in (200, 404)
+def test_route_no_via(client, graph):
+    s, e, _ = _points(graph)
+    r = client.post("/api/v1/route", json={"start": s, "end": e, "vias": []})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["distance_km"] > 0
+    assert len(d["edges"]) > 0
+    assert d["geometry_geojson"]
+    assert d["algo"] in ("dijkstra", "astar", "astar/dijkstra")
+    assert len(d["snapped"]) == 2
+    assert r.headers.get("X-Route-Cache") in ("hit", "miss", "disabled")
+    assert r.headers.get("X-Route-Algo") in ("dijkstra", "astar")
+
 
 @pytest.mark.integration
-def test_route_with_validated_closure(client):
-    # 1) route initiale
-    r1 = client.post("/api/v1/route", json={
-        "start": {"lon": 3.04197, "lat": 36.7525},
-        "end":   {"lon": 3.09, "lat": 36.73},
-        "vias": []
-    })
-    if r1.status_code != 200:
-        pytest.skip("No initial path, cannot test closure deterministically.")
+def test_route_with_via(client, graph):
+    s, e, v = _points(graph)
+    r = client.post("/api/v1/route", json={"start": s, "end": e, "vias": [v]})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["distance_km"] > 0
+    assert len(d["edges"]) > 0
+    assert len(d["snapped"]) == 3
 
-    edges = r1.json()["edges"]
-    first_edge = edges[0]
 
-    # 2) récupère la geom du 1er edge via une requête SQL côté API ? (pas exposé)
-    # => ici on fait simple: on crée une fermeture "large" près du start. (peut échouer selon data)
-    # Pour une fermeture 100% déterministe, préfère manage.py smoke-route.
-    ev = client.post("/api/v1/events/road_closed", json={
-        "reason": "test closure near start",
-        "start_time": "2025-12-29T00:00:00+01:00",
-        "end_time": "2025-12-29T23:59:59+01:00",
-        "geometry_wkt": "LINESTRING(3.041 36.752, 3.043 36.753)"
-    })
-    assert ev.status_code in (200, 500)
-
-    if ev.status_code == 200:
-        event_id = ev.json()["id"]
-        v = client.post(f"/api/v1/events/road_closed/{event_id}/validate")
-        assert v.status_code in (200, 404, 500)
-
-    # 3) route après fermeture
-    r2 = client.post("/api/v1/route", json={
-        "start": {"lon": 3.04197, "lat": 36.7525},
-        "end":   {"lon": 3.09, "lat": 36.73},
-        "vias": []
-    })
-    assert r2.status_code in (200, 404)
+@pytest.mark.integration
+def test_route_same_point(client, graph):
+    # Départ = arrivée -> distance 0, pas d'erreur
+    s, _, _ = _points(graph)
+    r = client.post("/api/v1/route", json={"start": s, "end": s, "vias": []})
+    assert r.status_code == 200, r.text
+    assert r.json()["distance_km"] == 0.0

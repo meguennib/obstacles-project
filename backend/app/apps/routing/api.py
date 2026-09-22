@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -18,6 +18,7 @@ def route(
     req: RouteRequest,
     compare: str | None = Query(default=None, description="Set to 'google' to compare traffic-aware duration"),
     db: Session = Depends(get_db),
+    response: Response = Response(),
 ):
     vias_json = [{"lon": v.lon, "lat": v.lat} for v in (req.vias or [])]
 
@@ -61,7 +62,15 @@ def route(
             edges=list(resp.edges),
             google_distance_km=gdist,
             google_duration_min=gdur,
+            used_penalized_edges=int(resp.used_penalized_edges or 0),
         )
+
+        # v1.2: headers de diagnostic (additifs)
+        response.headers["X-Route-Algo"] = resp.algo or "none"
+        if not settings.route_cache:
+            response.headers["X-Route-Cache"] = "disabled"
+        else:
+            response.headers["X-Route-Cache"] = "hit" if resp.cache_hits > 0 else "miss"
 
         resp.comparison = comparison
         return resp
