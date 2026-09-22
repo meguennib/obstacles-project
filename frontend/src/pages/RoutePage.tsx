@@ -13,7 +13,7 @@ import type {
 import { apiGet, apiPost } from "../api";
 
 // Fix default marker icons (Vite)
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
 L.Icon.Default.mergeOptions({
     iconRetinaUrl: new URL("leaflet/dist/images/marker-icon-2x.png", import.meta.url).toString(),
     iconUrl: new URL("leaflet/dist/images/marker-icon.png", import.meta.url).toString(),
@@ -113,7 +113,6 @@ export default function RoutePage() {
     useEffect(() => {
         const t = setTimeout(() => loadSuggest(q), 250);
         return () => clearTimeout(t);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [q]);
 
     function applySuggestion(item: GeocodeSuggestItem, target: "start" | "end") {
@@ -162,8 +161,8 @@ export default function RoutePage() {
                     mapRef.current.fitBounds(b.pad(0.15));
                 }
             }
-        } catch (e: any) {
-            setErr(e?.message ?? "Failed to fetch");
+        } catch (e) {
+            setErr(e instanceof Error ? e.message : "Failed to fetch");
         } finally {
             setLoading(false);
         }
@@ -261,6 +260,31 @@ export default function RoutePage() {
                             <div>Durée: <b>{fmt(result.duration_min, 1)} min</b></div>
                             <div>Edges: <b>{result.edges?.length ?? 0}</b></div>
 
+                            {/* v1.2: infos algorithme + snap */}
+                            {result.algo ? (
+                                <div style={{ fontSize: 12, color: "#666" }}>
+                                    Algo: <b>{result.algo}</b>
+                                    {typeof result.cache_hits === "number" && result.cache_hits > 0 ? (
+                                        <span> — {result.cache_hits} segment(s) en cache</span>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                            {result.snapped && result.snapped.length >= 2 ? (
+                                <div style={{ fontSize: 12, color: "#666" }}>
+                                    {result.snapped[0].dist_m > 5 && (
+                                        <span>Départ décalé de {Math.round(result.snapped[0].dist_m)} m du clic. </span>
+                                    )}
+                                    {result.snapped[result.snapped.length - 1].dist_m > 5 && (
+                                        <span>Arrivée décalée de {Math.round(result.snapped[result.snapped.length - 1].dist_m)} m du clic.</span>
+                                    )}
+                                </div>
+                            ) : null}
+                            {result.used_penalized_edges ? (
+                                <div style={{ fontSize: 12, color: "#b26a00" }}>
+                                    {result.used_penalized_edges} edge(s) en pénalité emprunté(s).
+                                </div>
+                            ) : null}
+
                             {result.comparison?.google ? (
                                 <>
                                     <hr />
@@ -289,10 +313,11 @@ export default function RoutePage() {
                     whenReady={() => {
                         // map instance accessible via ref in "ref" in react-leaflet v4 is tricky
                     }}
-                    ref={(r: any) => {
-                        // react-leaflet gives Leaflet map instance in r?.leafletElement (older) or directly (newer)
-                        const m = (r && (r as any).leafletElement) ? (r as any).leafletElement : r;
-                        if (m && m.getCenter) mapRef.current = m as LeafletMap;
+                    ref={(r) => {
+                        // react-leaflet donne la carte directement (v4) ou via .leafletElement (anciens)
+                        const wrapped = r as unknown as { leafletElement?: LeafletMap } | null;
+                        const m = wrapped?.leafletElement ?? (r as LeafletMap | null);
+                        if (m && typeof m.getCenter === "function") mapRef.current = m;
                     }}
                 >
                     <TileLayer
@@ -312,6 +337,27 @@ export default function RoutePage() {
                     {polylines.map((line, idx) => (
                         <Polyline key={idx} positions={line.map(([lat, lon]) => [lat, lon] as [number, number])} />
                     ))}
+
+                    {/* v1.2: connecteurs pointillés clic -> noeud snap (décalage de snap) */}
+                    {result?.snapped && result.snapped.length >= 2 && start && end ? (
+                        <>
+                            {result.snapped[0].dist_m > 5 && (
+                                <Polyline
+                                    positions={[[start.lat, start.lon], [result.snapped[0].lat, result.snapped[0].lon]]}
+                                    pathOptions={{ color: "#888", weight: 2, dashArray: "6 6" }}
+                                />
+                            )}
+                            {result.snapped[result.snapped.length - 1].dist_m > 5 && (
+                                <Polyline
+                                    positions={[
+                                        [result.snapped[result.snapped.length - 1].lat, result.snapped[result.snapped.length - 1].lon],
+                                        [end.lat, end.lon],
+                                    ]}
+                                    pathOptions={{ color: "#888", weight: 2, dashArray: "6 6" }}
+                                />
+                            )}
+                        </>
+                    ) : null}
                 </MapContainer>
             </div>
         </div>

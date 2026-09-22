@@ -19,7 +19,7 @@ async function readErrorDetail(r: Response): Promise<string> {
     }
 }
 
-export async function apiPost<T>(path: string, body: any): Promise<T> {
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
     const r = await fetch(`${API_BASE}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

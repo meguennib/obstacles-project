@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
+from app.core.db import engine
 from app.core.logging import setup_logging
 from app.apps.routing.api import router as routing_router
 from app.apps.routing.edges import router as edges_router
@@ -13,7 +14,7 @@ setup_logging()
 
 app = FastAPI(
     title="Obstacles Routing API",
-    version="1.1.0",
+    version="1.2.0",
     description="API de calcul d'itineraires avec evitement d'obstacles (Algerie) - PostGIS + pgRouting",
 )
 
@@ -51,14 +52,28 @@ app.include_router(stats_router)
 
 @app.get("/health")
 def health():
-    return {"ok": True, "version": "1.1.0"}
+    return {
+        "status": "ok",
+        "db": _db_status(),
+    }
+
+
+def _db_status() -> str:
+    try:
+        from sqlalchemy import text
+
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return "ok"
+    except Exception:  # noqa: BLE001
+        return "error"
 
 
 @app.get("/")
 def root():
     return {
         "name": "Obstacles Routing API",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "docs": "/docs",
         "health": "/health",
         "endpoints": [

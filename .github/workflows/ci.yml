@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        # Image officielle pgRouting (maintenue par l'équipe pgRouting):
+        # PostgreSQL 16 + PostGIS 3.5 + pgRouting 3.8.
+        # NB: l'image postgis/postgis n'inclut PAS pgRouting
+        # (CREATE EXTENSION pgrouting échouerait).
+        image: pgrouting/pgrouting:16-3.5-3.8
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: routing_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_SERVER: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: routing_db
+      RUN_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r requirements.txt pytest
+      - name: Compile check
+        run: python -m compileall app manage.py
+      - name: Install schema
+        run: python manage.py install-schema
+      - name: Generate deterministic test graph
+        run: python manage.py make-test-graph
+      - name: Check DB
+        run: python manage.py check-db
+      - name: Smoke route
+        run: |
+          set -o pipefail
+          python manage.py smoke-route 2>&1 | tee smoke-route.log || {
+            # Annotation lisible dans l'onglet Checks (les logs complets restent dans l'UI)
+            echo "::error title=smoke-route failed (tail)::$(tail -n 40 smoke-route.log | tr '\n' '|')"
+            exit 1
+          }
+      - name: Unit + integration tests
+        run: |
+          set -o pipefail
+          python -m pytest -q --tb=short 2>&1 | tee pytest-ci.log || {
+            echo "::error title=pytest failed (tail)::$(tail -n 80 pytest-ci.log | tr '\n' '|')"
+            exit 1
+          }
+      - name: Benchmark (info)
+        if: always()
+        run: |
+          set -o pipefail
+          BENCH_FILE="docs/benchmarks/ci-$(date -u +%Y%m%d-%H%M%S).json"
+          python manage.py bench-route --runs 5 --closures 3 --save "$BENCH_FILE" 2>&1 | tee bench-route.log || true
+          # Resume du bench, lisible via l'API check-runs/annotations (les
+          # logs Actions et les artefacts ne sont PAS lisibles par le token
+          # bot; les step-summary non plus — le canal annotations, lui, l'est)
+          BENCH_LINES=$(grep -E 'no-closures|closures=' bench-route.log | tr '\n' '|' | cut -c1-3500)
+          if [ -n "$BENCH_LINES" ]; then
+            echo "::notice title=bench (p50/p95 ms, cache off, runs=5, closures=3, grid 264 edges)::${BENCH_LINES}"
+          else
+            echo "::warning title=bench (aucun resultat, voir log)::$(tail -n 15 bench-route.log | tr '\n' '|')"
+          fi
+      - name: Upload benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: backend/docs/benchmarks/ci-*.json
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - name: Install deps
+        run: npm ci
+      - name: Type check + build
+        run: npm run build
+      - name: Lint
+        run: npm run lint || true

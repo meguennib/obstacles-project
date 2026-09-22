@@ -2,7 +2,10 @@ version: "3.9"
 
 services:
   db:
-    image: postgis/postgis:16-3.4
+    # Image officielle pgRouting (PostgreSQL 16 + PostGIS 3.5 + pgRouting 3.8).
+    # NB: ne pas utiliser postgis/postgis ici — elle n'inclut pas pgRouting
+    # (init-db/01-init.sql échouerait sur CREATE EXTENSION pgrouting).
+    image: pgrouting/pgrouting:16-3.5-3.8
     container_name: obstacles-db
     restart: unless-stopped
     environment:

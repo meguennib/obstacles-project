@@ -115,8 +115,8 @@ export default function DashboardPage() {
             setTs(t);
             setTopEdges(e);
             setTopFailures(f);
-        } catch (e: any) {
-            setErr(e?.message ?? "Failed to load stats");
+        } catch (e) {
+            setErr(e instanceof Error ? e.message : "Failed to load stats");
         } finally {
             setLoading(false);
         }
