@@ -200,11 +200,11 @@ def snap_sql() -> str:
              WITH ORDINALITY AS p(lon, lat, idx)
       ),
       c AS (
-        SELECT p.idx0, e.id, e.source, e.target, e.x1, e.y1, e.x2, e.y2,
+        SELECT p.idx0, e.id, e.source, e.target, e.x1, e.y1, e.x2, e.y2, e.geom_way,
                ROW_NUMBER() OVER (PARTITION BY p.idx0 ORDER BY e.geom_way <-> p.pt) AS rk
         FROM pts p
         CROSS JOIN LATERAL (
-          SELECT id, source, target, x1, y1, x2, y2
+          SELECT id, source, target, x1, y1, x2, y2, geom_way
           FROM {EDGES_TABLE}
           ORDER BY geom_way <-> p.pt
           LIMIT {KNN_EDGES}
