@@ -57,13 +57,20 @@ def create_road_closed(db: Session, payload) -> dict:
     return out
 
 
+# Tolérance de dérive: une ligne tracée au clic diffère de quelques mètres
+# (voire moins d'un ulp au niveau des nœuds) de la route réelle -> on teste
+# l'intersection CONTRE LE BUFFER, pas contre la ligne brute. Sinon un edge
+# dont l'extrémité "s'arrête un cheveu avant" la ligne serait manqué.
+DERIVE_BUFFER_DEG = 0.002  # ~130-220 m selon la latitude
+
+
 def _intersect_edges_sql() -> str:
-    """Fragment SQL: edges intersectés/touchés par la géométrie :wkt (pré-filtre GiST)."""
+    """Fragment SQL: edges traversés/frôlés par la géométrie :wkt (bufferée)."""
+    buffered = f"ST_SetSRID(ST_Buffer(ST_GeomFromText(:wkt), {DERIVE_BUFFER_DEG}), 4326)"
     return (
         f"FROM {EDGES_TABLE} e\n"
-        "WHERE e.geom_way && ST_SetSRID(ST_Buffer(ST_GeomFromText(:wkt), 0.002), 4326)\n"
-        "  AND (ST_Intersects(ST_LineMerge(e.geom_way), ST_SetSRID(ST_GeomFromText(:wkt), 4326))\n"
-        "       OR ST_Touches(ST_LineMerge(e.geom_way), ST_SetSRID(ST_GeomFromText(:wkt), 4326)))"
+        f"WHERE e.geom_way && {buffered}\n"
+        f"  AND ST_Intersects(ST_LineMerge(e.geom_way), {buffered})"
     )
 
 
