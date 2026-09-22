@@ -13,7 +13,11 @@ jobs:
         working-directory: backend
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        # Image officielle pgRouting (maintenue par l'équipe pgRouting):
+        # PostgreSQL 16 + PostGIS 3.5 + pgRouting 3.8.
+        # NB: l'image postgis/postgis n'inclut PAS pgRouting
+        # (CREATE EXTENSION pgrouting échouerait).
+        image: pgrouting/pgrouting:16-3.5-3.8
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
