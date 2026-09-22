@@ -72,13 +72,15 @@ jobs:
           set -o pipefail
           BENCH_FILE="docs/benchmarks/ci-$(date -u +%Y%m%d-%H%M%S).json"
           python manage.py bench-route --runs 5 --closures 3 --save "$BENCH_FILE" 2>&1 | tee bench-route.log || true
-          # Resume du bench dans le "Summary" du check (lisible via l'API
-          # check-runs, les logs/actions n'etant pas lisibles par le token bot)
-          {
-            echo '### Benchmark routing (grid 264 edges — cache off, runs=5, closures=3)'
-            echo ''
-            grep -E 'no-closures|closures=' bench-route.log || echo '(aucune ligne de resultat — bench en erreur, voir log)'
-          } >> "$GITHUB_STEP_SUMMARY"
+          # Resume du bench, lisible via l'API check-runs/annotations (les
+          # logs Actions et les artefacts ne sont PAS lisibles par le token
+          # bot; les step-summary non plus — le canal annotations, lui, l'est)
+          BENCH_LINES=$(grep -E 'no-closures|closures=' bench-route.log | tr '\n' '|' | cut -c1-3500)
+          if [ -n "$BENCH_LINES" ]; then
+            echo "::notice title=bench (p50/p95 ms, cache off, runs=5, closures=3, grid 264 edges)::${BENCH_LINES}"
+          else
+            echo "::warning title=bench (aucun resultat, voir log)::$(tail -n 15 bench-route.log | tr '\n' '|')"
+          fi
       - name: Upload benchmark
         if: always()
         uses: actions/upload-artifact@v4
